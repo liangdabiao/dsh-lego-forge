@@ -1,0 +1,43 @@
+{
+ "ok": true,
+ "errors": 0,
+ "warnings": 1,
+ "issues": [
+  {
+   "level": "warn",
+   "part": null,
+   "msg": "282 parts — under 300: likely too plain (fine for a blockout)",
+   "hint": "a set is 300–1,500 parts: build the subject bigger (more detail per feature) or give it a setting (ground, props, figures, a display stand)",
+   "where": ""
+  }
+ ],
+ "stats": {
+  "parts": 282,
+  "types": 60,
+  "colors": 7,
+  "palette": [
+   "Dark Bluish Gray 29%",
+   "White 24%",
+   "Green 10%",
+   "Light Bluish Gray 6%",
+   "Reddish Brown 6%",
+   "Black 4%",
+   "Yellow 4%",
+   "Dark Azure 3%",
+   "Bright Green 2%",
+   "Dark Green 2%",
+   "Bright Pink 2%",
+   "Tan 2%",
+   "Dark Red 1%",
+   "Trans Clear 1%",
+   "Medium Lavender 1%",
+   "Trans Yellow 0%",
+   "Dark Blue 0%",
+   "Dark Brown 0%",
+   "Sand Blue 0%",
+   "Medium Azure 0%"
+  ],
+  "specialShare": 0.43,
+  "components": 1
+ }
+}

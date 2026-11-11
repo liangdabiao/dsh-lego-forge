@@ -1,0 +1,80 @@
+{
+  "name": "dsh-lego-forge",
+  "version": "0.1.4",
+  "description": "积木工坊：agent 写 build.mjs 烘焙成真实可拼的 LEGO 模型（450 种真零件、可拼搭硬检查、LDraw 导出）；面板实时看构建时间线，3D 里点选/框选区域直接批注给 agent 修改。",
+  "license": "MIT",
+  "type": "module",
+  "main": "src/host.js",
+  "exports": {
+    ".": "./src/host.js",
+    "./client": "./dist/client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "icon": "./icon.svg",
+  "files": [
+    "src",
+    "dist",
+    "lib",
+    "engine",
+    "viewer",
+    "templates",
+    "examples",
+    "docs",
+    "skills",
+    "locale/*.json",
+    "cordis.patch.yml",
+    "icon.svg",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "lego",
+    "ldraw",
+    "bricks",
+    "3d"
+  ],
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0",
+    "dsh": ">=0.2.1-rc.2 <0.3.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": []
+    }
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "^3.19.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.10",
+    "three": "0.170.0"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "build:viewer": "node scripts/build-viewer.mjs",
+    "watch": "node scripts/build.mjs --watch",
+    "test": "node --test \"test/*.test.mjs\"",
+    "prepare": "npm run build",
+    "prepack": "npm run build"
+  },
+  "optionalDependencies": {
+    "playwright": "^1.49.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/liangdabiao/dsh-lego-forge.git"
+  },
+  "author": "liangdabiao",
+  "upstream": "lego-forge by Tianchi Fu (MIT) — engine, viewer 与方法论源自 https://github.com/ericfu-tianchi/lego-forge；LDraw 零件几何 © LDraw.org (CC BY 2.0)"
+}
+

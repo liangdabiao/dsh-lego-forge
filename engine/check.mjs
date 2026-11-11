@@ -1,0 +1,133 @@
+// The buildability check. A set passes only if every part is a real part in a real colour, nothing passes through anything else,
+// and every part is held by real stud connections to one single structure (nothing loose, nothing floating).
+// Messages are written so the builder can act on them directly: what is wrong, where (line in build.mjs, grid position), what to do.
+import { resolve, part as partDef } from './catalog.mjs';
+
+const EPS = 0.06;      // studs: positions must match this closely
+const VSKIN = 0.25;    // plates: overlap tolerated vertically (rounded edges, a stud inside the part above)
+const HSKIN = 0.12;    // studs: overlap tolerated sideways for exact-transform parts (minifigures)
+
+export function check(model) {
+  const parts = model.parts; const R = parts.map((p) => resolve(p));
+  const issues = []; const add = (level, i, msg, hint) => issues.push({ level, part: i, msg, hint, where: i == null ? '' : where(parts[i]) });
+  for (const e of model.errors) issues.push({ level: 'error', part: null, msg: e, hint: '', where: '' });
+  for (const w of [...new Set(model.warnings ?? [])]) issues.push({ level: 'warn', part: null, msg: w, hint: '', where: '' });
+
+  // ---- grid hygiene
+  parts.forEach((p, i) => { if (p.free) return; const half = (v) => Math.abs(v * 2 - Math.round(v * 2)) > 1e-6;
+    if (half(p.x) || half(p.z)) add('error', i, `${label(p)} sits off the stud grid (x ${p.x}, z ${p.z})`, 'x and z are whole studs (half studs only on a jumper plate)');
+    if (Math.abs(p.y - Math.round(p.y)) > 1e-6) add('error', i, `${label(p)} is between plate levels (y ${p.y})`, 'y counts plates: whole numbers only');
+    if (p.y < 0) add('error', i, `${label(p)} is below the ground (y ${p.y})`, 'the lowest layer is y = 0'); });
+
+  // ---- collisions: grid columns against grid columns, exact-transform boxes against everything
+  const cells = new Map(); const key = (x, z) => `${Math.round(x * 2)},${Math.round(z * 2)}`;
+  R.forEach((r, i) => r.cols.forEach(([x, z, a, b]) => { const k = key(x, z); if (!cells.has(k)) cells.set(k, []); cells.get(k).push([i, a, b]); }));
+  const clash = new Set();
+  for (const list of cells.values()) for (let u = 0; u < list.length; u++) for (let v = u + 1; v < list.length; v++) {
+    const [i, a, b] = list[u], [j, c, d] = list[v]; if (i === j || sameGroup(parts[i], parts[j])) continue;
+    if (Math.min(b, d) - Math.max(a, c) > VSKIN) { const k = i < j ? `${i}|${j}` : `${j}|${i}`; if (clash.has(k)) continue; clash.add(k);
+      add('error', j, `${label(parts[j])} passes through ${label(parts[i])} (${where(parts[i])})`, 'two parts cannot share space — move one, or remove it'); }
+  }
+  const freeIdx = R.map((r, i) => (r.free ? i : -1)).filter((i) => i >= 0);
+  for (const i of freeIdx) { const A = R[i].aabb;
+    for (let j = 0; j < parts.length; j++) { if (j === i || sameGroup(parts[i], parts[j])) continue; const r = R[j];
+      const hits = r.free ? boxHit(A, r.aabb) : r.cols.some(([x, z, a, b]) => boxHit(A, [x - 0.5, a * 0.4, z - 0.5, x + 0.5, b * 0.4, z + 0.5]));
+      if (hits && (r.free ? i < j : true)) { const k = i < j ? `${i}|${j}` : `${j}|${i}`; if (clash.has(k)) continue; clash.add(k); const fig = /^Minifig/.test(partDef(parts[i].id).name) || /^Minifig/.test(partDef(parts[j].id).name); add('error', i, `${label(parts[i])} passes through ${label(parts[j])} (${where(parts[j])})`, fig ? 'a minifigure needs room: its arms and hands reach half a stud past its 2×1 footprint on each side, and its head is 4 bricks up — keep 1 stud clear beside it and nothing over it' : 'two parts cannot share space — move one, or leave more room around it'); } } }
+
+  // ---- connections: a stud of a part below plugs into an anti-stud of a part whose bottom is exactly at the stud's base
+  const adj = parts.map(() => new Set()); const link = (a, b) => { adj[a].add(b); adj[b].add(a); };
+  const byBottom = new Map(); R.forEach((r, i) => { if (r.free) return; const y = parts[i].y; if (!byBottom.has(y)) byBottom.set(y, []); byBottom.get(y).push(i); });
+  R.forEach((r, i) => { for (const [sx, sz, sy] of r.studs) { const above = byBottom.get(Math.round(sy * 1000) / 1000) ?? byBottom.get(Math.round(sy)); if (!above || Math.abs(sy - Math.round(sy)) > 0.02) continue;
+    for (const j of above) { if (j === i) continue; const f = R[j].female; if (f.some(([x, z]) => Math.abs(x - sx) < EPS && Math.abs(z - sz) < EPS) || tube(f, sx, sz)) link(i, j); } } });
+  // ---- the same thing in three dimensions, which is what SNOT needs: a stud pin seats in a socket pin when they share a point and
+  // face each other. Vertical studs are covered above and again here (harmless); side studs and parts placed at an exact transform
+  // — anything hung off a 4733 or a bracket, and every minifigure — only connect through this pass.
+  const sideLinks = sideConnect(R, link);
+  // a rigid unit is connected inside itself
+  const groups = new Map(); parts.forEach((p, i) => { if (!p.group) return; if (!groups.has(p.group)) groups.set(p.group, []); groups.get(p.group).push(i); });
+  for (const g of groups.values()) for (let k = 1; k < g.length; k++) link(g[0], g[k]);
+  // components
+  const comp = new Array(parts.length).fill(-1); let n = 0; const sizes = [];
+  for (let s = 0; s < parts.length; s++) { if (comp[s] >= 0) continue; const st = [s]; comp[s] = n; let c = 0; while (st.length) { const a = st.pop(); c++; for (const b of adj[a]) if (comp[b] < 0) { comp[b] = n; st.push(b); } } sizes.push(c); n++; }
+  // the set is the largest piece that stands on the table (a vehicle parked on top of it is a separate piece by nature)
+  const isTyreP = (p) => /^Tyre/.test(partDef(p.id).name); const grounded = new Set(); const hasTyre = new Set();
+  parts.forEach((p, i) => { if (R[i].aabb[1] < 0.05) grounded.add(comp[i]); if (isTyreP(p)) hasTyre.add(comp[i]); });
+  let main = -1; for (let c = 0; c < n; c++) if (grounded.has(c) && !hasTyre.has(c) && (main < 0 || sizes[c] > sizes[main])) main = c;
+  if (main < 0) main = sizes.indexOf(Math.max(...sizes));
+  const loose = new Map(); parts.forEach((p, i) => { if (comp[i] !== main) { if (!loose.has(comp[i])) loose.set(comp[i], []); loose.get(comp[i]).push(i); } });
+  const isTyre = (p) => /^Tyre/.test(partDef(p.id).name);
+  for (const list of loose.values()) {
+    // a vehicle standing on its tyres is allowed to be a separate piece (a car is parked, not glued) — if a tyre rests on a surface
+    if (list.some((j) => isTyre(parts[j]))) { const rests = list.some((j) => isTyre(parts[j]) && restsOnSomething(R[j], R, list)); if (rests) { add('info', list[0], `a vehicle of ${list.length} parts stands on its own wheels (allowed)`, ''); continue; } }
+    const i = list[0]; const what = list.length === 1 ? label(parts[i]) : `${list.length} parts (${label(parts[i])} …)`;
+    const onGround = list.some((j) => !parts[j].free && parts[j].y === 0);
+    const members = list.length > 1 ? '\n    the group: ' + list.slice(0, 6).map((j) => `${partDef(parts[j]?.id)?.name.split(' ').slice(0, 3).join(' ')} (${where(parts[j])})`).join('; ') + (list.length > 6 ? ` … +${list.length - 6}` : '') : '';
+    add('error', i, `${what} ${list.length === 1 ? 'is' : 'are'} not connected to the rest of the set${onGround ? ' (standing loose on the table)' : ''}${members}`,
+      R[i].female.length || R[i].free ? 'find where this group should rest on the main build: its bottom must sit exactly on studs of a part below (not on a tile, not between plate levels). A side-mounted piece must sit exactly on a side stud — check its own anti-stud cell landed on the stud, not half a stud beside it. A group made of side-by-side pieces with no piece bridging them falls apart: overlap the joints' : 'this part has no anti-studs underneath — it cannot sit on studs; use a different part');
+  }
+
+  // ---- size and character
+  const st = model.stats(); const [lo, hi] = model.meta.budget; { const cnt = new Map(); const body = parts.filter((p) => !/minifig|plant|animal/.test(partDef(p.id).cat) && !/^Trans/.test(p.color)); for (const p of body) cnt.set(p.color, (cnt.get(p.color) ?? 0) + 1); st.colors = [...cnt.values()].filter((n) => n >= Math.max(3, body.length * 0.03)).length; }   // colours that make up the build (≥ 3% of it), not every accent
+  if (st.parts > hi) add('error', null, `${st.parts} parts — over the budget of ${hi}`, 'simplify: fewer filler bricks inside, larger plates under floors');
+  if (st.parts < 300) add('warn', null, `${st.parts} parts — ${st.parts < 150 ? 'too small to be a set' : 'under 300: likely too plain'} (fine for a blockout)`, 'a set is 300–1,500 parts: build the subject bigger (more detail per feature) or give it a setting (ground, props, figures, a display stand)');
+  const special = parts.filter((p) => !/^(brick|plate)$/.test(partDef(p.id).cat)).length / Math.max(1, parts.length);
+  if (special < 0.25 && parts.length > 100) add('warn', null, `only ${(special * 100).toFixed(0)}% of the parts are not plain bricks/plates (good sets: 25–50%)`, 'use slopes, tiles, round parts, windows, plants and details: they are what make a set look designed');
+  if (st.colors > 9) add('warn', null, `${st.colors} main colours (each ≥ 3% of the parts) — busy`, 'a strong set uses 4–8 colours');
+  const errors = issues.filter((x) => x.level === 'error').length;
+  { const cnt = new Map(); for (const p of parts) cnt.set(p.color, (cnt.get(p.color) ?? 0) + 1); st.palette = [...cnt].sort((a, b) => b[1] - a[1]).map(([c, n]) => `${c} ${Math.round((n / parts.length) * 100)}%`); }
+  // the brick/plate/tile split: the one number that predicts whether a wall will look flat (see docs/REFERENCE.md — official
+  // modular buildings run about 1.13 plates per brick and 18% tiles; a build that is all bricks can only change colour)
+  { const cnt = new Map(); for (const p of parts) { const c = partDef(p.id).cat; cnt.set(c, (cnt.get(c) ?? 0) + 1); }
+    st.mix = ['brick', 'plate', 'tile', 'slope'].map((k) => cnt.get(k) ?? 0); }
+  return { ok: errors === 0, errors, warnings: issues.filter((x) => x.level === 'warn').length, issues, stats: { ...st, specialShare: +special.toFixed(2), components: n } };
+}
+const sameGroup = (a, b) => !!a.group && a.group === b.group;
+/** Match every stud pin against every socket pin in world space. Sockets are bucketed at an eighth of a stud and each stud looks in
+ *  its own cell plus the 26 around it, so a rounding split cannot lose a mate. Returns how many links came out of it. */
+function sideConnect(R, link) {
+  const K = 8, key = (p) => `${Math.round(p[0] * K)},${Math.round(p[1] * K)},${Math.round(p[2] * K)}`;
+  const sockets = new Map();
+  R.forEach((r, i) => { for (const s of r.pins?.socket ?? []) { const k = key(s.p); if (!sockets.has(k)) sockets.set(k, []); sockets.get(k).push([i, s]); } });
+  let n = 0;
+  R.forEach((r, i) => {
+    for (const st of r.pins?.stud ?? []) {
+      const [kx, ky, kz] = key(st.p).split(',').map(Number);
+      for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) {
+        const list = sockets.get(`${kx + dx},${ky + dy},${kz + dz}`); if (!list) continue;
+        for (const [j, so] of list) {
+          if (j === i) continue;
+          if (Math.abs(st.p[0] - so.p[0]) > EPS || Math.abs(st.p[1] - so.p[1]) > EPS || Math.abs(st.p[2] - so.p[2]) > EPS) continue;
+          // the peg and the hole must face each other: the axes are opposite
+          if (st.ax[0] * so.ax[0] + st.ax[1] * so.ax[1] + st.ax[2] * so.ax[2] > -0.85) continue;
+          link(i, j); n++;
+        }
+      }
+    }
+  });
+  return n;
+}
+/** does a part's bottom rest on a top surface of a part outside its own group (or on the table)? */
+function restsOnSomething(r, R, own) { const y = r.aabb[1]; if (y < 0.05) return true; const inGroup = new Set(own);
+  return R.some((q, j) => !inGroup.has(j) && !q.free && Math.abs(q.aabb[4] - y) < 0.12 && Math.min(q.aabb[3], r.aabb[3]) > Math.max(q.aabb[0], r.aabb[0]) && Math.min(q.aabb[5], r.aabb[5]) > Math.max(q.aabb[2], r.aabb[2])); }
+const boxHit = (A, B) => Math.min(A[3], B[3]) - Math.max(A[0], B[0]) > HSKIN && Math.min(A[5], B[5]) - Math.max(A[2], B[2]) > HSKIN && Math.min(A[4], B[4]) - Math.max(A[1], B[1]) > VSKIN * 0.4;
+/** the tube between four anti-stud cells of a 2-wide part takes a stud too */
+const tube = (f, x, z) => [[-0.5, -0.5], [0.5, -0.5], [-0.5, 0.5], [0.5, 0.5]].every(([a, b]) => f.some(([fx, fz]) => Math.abs(fx - (x + a)) < EPS && Math.abs(fz - (z + b)) < EPS));
+export function label(p) { const d = partDef(p.id); return `${d ? d.name.replace(/\s+/g, ' ') : p.id} [${p.id}] ${p.color}`; }
+export function where(p) { return `${p.line ? p.line + ' ' : ''}${p.free ? 'kit' : `at x ${p.x} y ${p.y} z ${p.z}${p.rot ? ` rot ${p.rot}` : ''}`}${p.tag ? ` · ${p.tag}` : ''}`; }
+export function report(res) {
+  const L = [`${res.ok ? 'PASS' : 'FAIL'} · ${res.stats.parts} parts · ${res.stats.types} kinds · ${res.stats.colors} build colours · ${Math.round(res.stats.specialShare * 100)}% specialty parts · ${res.errors} errors · ${res.warnings} warnings`];
+  L.push(`colours by share: ${res.stats.palette.slice(0, 12).join(' · ')}`);
+  const mix = res.stats.mix; if (mix) { const [br, pl, ti, sl] = mix; const n = Math.max(1, res.stats.parts);
+    L.push(`parts by kind: ${br} brick · ${pl} plate · ${ti} tile · ${sl} slope — ${(pl / Math.max(1, br)).toFixed(2)} plates per brick, ${Math.round((ti / n) * 100)}% tiles (official modulars: 1.13 and 18% — see docs/REFERENCE.md)`); }
+  const shown = res.issues.filter((x) => x.level !== 'info').slice(0, 40); for (const x of res.issues.filter((x) => x.level === 'info')) L.push(`· ${x.msg}`);
+  for (const x of shown) L.push(`${x.level === 'error' ? '✗' : '!'} ${x.msg}${x.where ? `\n    ${x.where}` : ''}${x.hint ? `\n    → ${x.hint}` : ''}`);
+  const rest = res.issues.filter((x) => x.level !== 'info').length - shown.length; if (rest > 0) L.push(`… and ${rest} more`);
+  // What PASS does not mean. The check proves geometry, not physics, and saying so is part of the report: a reader who takes
+  // "0 errors" as "this will hold together" is being misled by a silence, not by a claim.
+  L.push('');
+  L.push('physical validity: not proven — this proves geometry, not physics.');
+  L.push('  · connections are verified stud by stud, side studs and rotated parts included, but load, friction and sag under weight are not modelled.');
+  L.push('  · collisions are whole-cell, so sub-millimetre moulding clearance, parts that flex, and joints that settle are outside it.');
+  L.push('  · a colour is a real LEGO colour name, not proof the part was ever moulded in it; availability is not checked.');
+  return L.join('\n');
+}
