@@ -4,6 +4,11 @@ DeepSeek Harness（[dsh](https://www.npmjs.com/package/@deepseek-ai/dsh)）插�
 
 ![效果示例：日式庭院 / 树屋 / F1 赛车 / 街角面包店](docs/showcase.jpg)
 
+<img width="690" height="370" alt="image" src="https://github.com/user-attachments/assets/602f2960-a3aa-4b7a-af15-2f9f1680727d" />
+<img width="648" height="500" alt="image" src="https://github.com/user-attachments/assets/822825b6-4951-4a77-9481-e14be5626ae8" />
+<img width="602" height="500" alt="image" src="https://github.com/user-attachments/assets/eb26ea91-00b0-4586-a22f-c9f860a5367f" />
+
+
 ## 装上以后有什么
 
 | 能力 | 说明 |
@@ -54,8 +59,6 @@ DeepSeek Harness（[dsh](https://www.npmjs.com/package/@deepseek-ai/dsh)）插�
 要求 Node 22.19+ 或 24+，DSH `>=0.2.1-rc.2 <0.3.0`。
 
 ```bash
-# 从 npm 安装（发布后）
-dsh plugin --profile web add dsh-lego-forge
 
 # 从本仓库直装（安装时会跑 prepare 钩子自动构建 dist/client.js）
 dsh plugin --profile web add github:liangdabiao/dsh-lego-forge
@@ -110,6 +113,8 @@ dsh plugin --profile web add link:$PWD   # 本地调试
 ## License
 
 [MIT](LICENSE)。`engine/`、`docs/` 与构建方法论源自 [lego-forge](https://github.com/ericfu-tianchi/lego-forge)（MIT）；LDraw 零件几何 © LDraw.org (CC BY 2.0)。
+
+感谢社区支持：  https://linux.do  
 
 ## 更新日志
 
