@@ -61,7 +61,7 @@ DeepSeek Harness（[dsh](https://www.npmjs.com/package/@deepseek-ai/dsh)）插�
 ```bash
 
 # 从本仓库直装（安装时会跑 prepare 钩子自动构建 dist/client.js）
-dsh plugin --profile web add github:liangdabiao/dsh-lego-forge
+dsh plugin --profile web add https://github.com/liangdabiao/dsh-lego-forge
 
 # 本地开发调试
 dsh plugin --profile web add link:$PWD
